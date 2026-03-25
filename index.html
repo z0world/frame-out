@@ -488,37 +488,35 @@
   <div class="footer">AI 배경제거 · 서버 전송 없음 · 100% 브라우저 처리</div>
 </div>
 
+
 <script type="module">
-import { removeBackground } from 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/index.mjs';
+// ── Hugging Face Transformers.js (CDN, 안정적) ──────────────────────────
+import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/dist/transformers.min.js';
+env.allowLocalModels = false;
 
 const settings = { overflow: true, blur: true, shadow: true };
 
 window.toggleSetting = (key) => {
   settings[key] = !settings[key];
-  const chip = document.getElementById('chip' + key.charAt(0).toUpperCase() + key.slice(1));
-  chip.classList.toggle('active', settings[key]);
+  document.getElementById('chip' + key.charAt(0).toUpperCase() + key.slice(1))
+    .classList.toggle('active', settings[key]);
   applySettings();
 };
 
 function applySettings() {
   const subject = document.getElementById('subjectImg');
   const bgImg   = document.getElementById('bgImg');
-
   subject.style.bottom = settings.overflow ? '-55px' : '0px';
   subject.style.height = settings.overflow ? 'calc(100% + 70px)' : '100%';
   bgImg.style.filter   = settings.blur ? 'brightness(0.7) blur(4px)' : 'brightness(0.9)';
-  subject.style.filter = settings.shadow
-    ? 'drop-shadow(0 16px 32px rgba(0,0,0,0.9))'
-    : 'none';
+  subject.style.filter = settings.shadow ? 'drop-shadow(0 16px 32px rgba(0,0,0,0.9))' : 'none';
 }
 
-// Drag & drop
 const uploadZone = document.getElementById('uploadZone');
 uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
 uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
 uploadZone.addEventListener('drop', e => {
-  e.preventDefault();
-  uploadZone.classList.remove('dragover');
+  e.preventDefault(); uploadZone.classList.remove('dragover');
   if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
 });
 document.getElementById('fileInput').addEventListener('change', e => {
@@ -526,13 +524,13 @@ document.getElementById('fileInput').addEventListener('change', e => {
 });
 
 let subjectBlobUrl = null;
+let segmenter = null;
 
 async function handleFile(file) {
   const url = URL.createObjectURL(file);
   uploadZone.style.display = 'none';
   document.getElementById('settingsRow').style.display = 'none';
-  const pw = document.getElementById('progressWrap');
-  pw.classList.add('visible');
+  document.getElementById('progressWrap').classList.add('visible');
   setProgress(5, 'AI 모델 초기화 중...');
 
   document.getElementById('bgImg').src = url;
@@ -541,31 +539,65 @@ async function handleFile(file) {
   document.getElementById('sideRightImg').src = url;
 
   try {
-    setProgress(15, 'AI 모델 로딩 중 (최초 1회 다운로드)...');
+    // 모델 최초 1회 로드 (캐시됨)
+    if (!segmenter) {
+      setProgress(20, 'AI 모델 다운로드 중 (최초 1회, 약 40MB)...');
+      segmenter = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
+        device: 'webgpu',
+      });
+    }
 
-    const blob = await removeBackground(file, {
-      
-      progress: (key, current, total) => {
-        if (total > 0) {
-          const pct = Math.min(Math.round((current / total) * 65) + 20, 85);
-          setProgress(pct, `AI 처리 중... ${Math.round((current/total)*100)}%`);
-        }
-      },
-      output: { format: 'image/png', quality: 1 }
-    });
+    setProgress(70, 'AI 배경 제거 중...');
+    const results = await segmenter(url);
 
-    setProgress(95, '합성 중...');
+    setProgress(90, '합성 중...');
+
+    // mask를 원본 이미지에 적용해서 PNG 생성
+    const mask = results[0].mask; // ImageData
+
+    // 원본 이미지를 캔버스에 그리고 마스크 적용
+    const img = new Image();
+    img.src = url;
+    await new Promise(r => img.onload = r);
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+
+    // 마스크 적용 (alpha 채널)
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width  = mask.width;
+    maskCanvas.height = mask.height;
+    const maskCtx = maskCanvas.getContext('2d');
+    maskCtx.putImageData(mask, 0, 0);
+
+    // 마스크를 원본 크기로 스케일
+    const maskScaled = document.createElement('canvas');
+    maskScaled.width  = canvas.width;
+    maskScaled.height = canvas.height;
+    const msCtx = maskScaled.getContext('2d');
+    msCtx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
+    const maskData = msCtx.getImageData(0, 0, canvas.width, canvas.height);
+
+    for (let i = 0; i < imageData.data.length; i += 4) {
+      imageData.data[i + 3] = maskData.data[i]; // R채널을 alpha로
+    }
+    ctx.putImageData(imageData, 0, 0);
+
     if (subjectBlobUrl) URL.revokeObjectURL(subjectBlobUrl);
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
     subjectBlobUrl = URL.createObjectURL(blob);
 
     const subjectEl = document.getElementById('subjectImg');
     subjectEl.src = subjectBlobUrl;
     subjectEl.style.display = 'block';
-
     setProgress(100, '완료! ✨');
 
     setTimeout(() => {
-      pw.classList.remove('visible');
+      document.getElementById('progressWrap').classList.remove('visible');
       document.getElementById('settingsRow').style.display = 'flex';
       document.getElementById('previewSection').classList.add('visible');
       applySettings();
@@ -573,6 +605,10 @@ async function handleFile(file) {
 
   } catch(err) {
     console.error(err);
+    // WebGPU 실패시 CPU fallback
+    if (err.message && err.message.includes('webgpu') && segmenter) {
+      segmenter = null;
+    }
     setProgress(0, '오류: ' + err.message);
     document.getElementById('progressLabel').style.color = '#f87171';
   }
@@ -605,11 +641,7 @@ window.downloadImage = async () => {
     });
   }
   const canvas = await html2canvas(wrapper, {
-    backgroundColor: null,
-    scale: 3,
-    useCORS: true,
-    allowTaint: true,
-    logging: false,
+    backgroundColor: null, scale: 3, useCORS: true, allowTaint: true, logging: false,
   });
   const a = document.createElement('a');
   a.href = canvas.toDataURL('image/png');

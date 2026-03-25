@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FRAME OUT — iOS Share Effect</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #13131a;
+    --border: rgba(255,255,255,0.07);
+    --accent: #a78bfa;
+    --accent2: #38bdf8;
+    --text: #f0f0f5;
+    --muted: #6b6b80;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 40px 20px 80px;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: -20%;
+    left: -20%;
+    width: 60%;
+    height: 60%;
+    background: radial-gradient(circle, rgba(167,139,250,0.08) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: '';
+    position: fixed;
+    bottom: -10%;
+    right: -10%;
+    width: 50%;
+    height: 50%;
+    background: radial-gradient(circle, rgba(56,189,248,0.06) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page-wrap {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 900px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 40px;
+  }
+
+  header { text-align: center; padding-top: 8px; }
+  .logo {
+    font-family: 'Space Mono', monospace;
+    font-size: clamp(26px, 5vw, 40px);
+    font-weight: 700;
+    letter-spacing: -1px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+  }
+  .tagline {
+    color: var(--muted);
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    font-weight: 300;
+  }
+
+  /* Upload zone */
+  .upload-zone {
+    width: 100%;
+    max-width: 520px;
+    border: 1.5px dashed rgba(167,139,250,0.3);
+    border-radius: 20px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: rgba(167,139,250,0.03);
+    position: relative;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(167,139,250,0.07);
+    transform: translateY(-2px);
+  }
+  .upload-zone input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+  .upload-icon { font-size: 44px; margin-bottom: 14px; }
+  .upload-title { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+  .upload-sub { font-size: 13px; color: var(--muted); }
+
+  /* Settings */
+  .settings-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    max-width: 520px;
+  }
+  .setting-chip {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+    flex: 1;
+    min-width: 120px;
+    justify-content: center;
+  }
+  .setting-chip:hover { border-color: rgba(167,139,250,0.4); }
+  .setting-chip.active {
+    background: rgba(167,139,250,0.12);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* Progress */
+  .progress-wrap { width: 100%; max-width: 520px; display: none; }
+  .progress-wrap.visible { display: block; }
+  .progress-bar-bg {
+    height: 3px;
+    background: var(--border);
+    border-radius: 99px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 99px;
+    width: 0%;
+    transition: width 0.4s ease;
+  }
+  .progress-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    text-align: center;
+  }
+
+  /* Preview section */
+  .preview-section {
+    width: 100%;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 32px;
+  }
+  .preview-section.visible { display: flex; }
+
+  /* iOS Frame */
+  .ios-frame-wrapper {
+    position: relative;
+    width: 340px;
+    /* Extra bottom padding so subject overflow is visible */
+    padding-bottom: 60px;
+  }
+
+  .ios-card {
+    background: rgba(24, 24, 34, 0.95);
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+    border-radius: 28px;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow:
+      0 50px 100px rgba(0,0,0,0.8),
+      0 0 0 0.5px rgba(255,255,255,0.05) inset;
+    overflow: visible; /* critical: let subject overflow */
+    padding-bottom: 20px;
+  }
+
+  /* Inner clip for everything EXCEPT subject */
+  .ios-card-inner {
+    border-radius: 28px;
+    overflow: hidden;
+  }
+
+  .ios-top-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .ios-thumb {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: #222;
+  }
+  .ios-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .ios-top-text { flex: 1; }
+  .ios-selected-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: 0.5px;
+    font-family: -apple-system, sans-serif;
+  }
+  .ios-url-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 99px;
+    padding: 3px 10px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.55);
+    margin-top: 3px;
+    font-family: -apple-system, sans-serif;
+  }
+
+  /* Photo area: clips the background but subject overflows */
+  .ios-photo-area {
+    position: relative;
+    margin: 12px 12px 0;
+    border-radius: 18px;
+    height: 300px;
+    overflow: visible; /* subject overflows */
+  }
+  .ios-photo-bg {
+    width: 100%;
+    height: 300px;
+    object-fit: cover;
+    border-radius: 18px;
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+    z-index: 1;
+  }
+  /* Clip mask for the BG only */
+  .ios-photo-bg-wrap {
+    position: absolute;
+    inset: 0;
+    border-radius: 18px;
+    overflow: hidden;
+    z-index: 1;
+  }
+  .ios-photo-bg-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* Subject pops out */
+  .ios-subject {
+    position: absolute;
+    bottom: -55px;
+    left: 50%;
+    transform: translateX(-50%);
+    height: calc(100% + 70px);
+    width: auto;
+    max-width: 115%;
+    object-fit: contain;
+    z-index: 20;
+    pointer-events: none;
+    transition: filter 0.3s, bottom 0.3s, height 0.3s;
+  }
+
+  /* Side thumbs and app icons */
+  .ios-bottom-section {
+    position: relative;
+    z-index: 2;
+    margin-top: 70px; /* compensate for subject overflow area */
+    padding: 0 12px;
+  }
+  .ios-side-thumbs {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    gap: 8px;
+  }
+  .ios-side-thumb {
+    flex: 1;
+    height: 100px;
+    border-radius: 14px;
+    overflow: hidden;
+    background: #1a1a28;
+    border: 1px solid rgba(255,255,255,0.07);
+  }
+  .ios-side-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.6;
+    filter: brightness(0.8);
+  }
+
+  .ios-apps {
+    display: flex;
+    justify-content: space-around;
+    padding: 4px 0;
+  }
+  .ios-app-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .ios-app-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+  }
+  .ios-app-label {
+    font-size: 10px;
+    color: rgba(255,255,255,0.45);
+    font-family: -apple-system, sans-serif;
+  }
+  .app-mail { background: linear-gradient(145deg, #1a8aff, #0066cc); }
+  .app-msg  { background: linear-gradient(145deg, #34c759, #1fa83c); }
+  .app-tg   { background: linear-gradient(145deg, #2aabee, #1a8fd1); }
+  .app-wa   { background: linear-gradient(145deg, #25d366, #128c7e); }
+
+  /* Buttons */
+  .action-row { display: flex; gap: 12px; align-items: center; }
+  .btn-download {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    padding: 14px 32px;
+    font-size: 15px;
+    font-weight: 500;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 8px 24px rgba(167,139,250,0.25);
+  }
+  .btn-download:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 14px 32px rgba(167,139,250,0.35);
+  }
+  .btn-reset {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 14px;
+    padding: 14px 24px;
+    font-size: 14px;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-reset:hover { border-color: rgba(255,255,255,0.15); color: var(--text); }
+
+  .footer {
+    color: var(--muted);
+    font-size: 11px;
+    opacity: 0.4;
+    font-family: 'Space Mono', monospace;
+  }
+</style>
+</head>
+<body>
+
+<div class="page-wrap">
+
+  <header>
+    <div class="logo">FRAME OUT</div>
+    <div class="tagline">인물이 프레임 밖으로 튀어나오는 iOS 공유 효과</div>
+  </header>
+
+  <div class="upload-zone" id="uploadZone">
+    <input type="file" id="fileInput" accept="image/*">
+    <div class="upload-icon">📷</div>
+    <div class="upload-title">사진을 여기에 드래그하거나 클릭해서 업로드</div>
+    <div class="upload-sub">JPG · PNG · WEBP &nbsp;·&nbsp; 브라우저에서 AI 처리 (무료)</div>
+  </div>
+
+  <div class="settings-row" id="settingsRow" style="display:none;">
+    <div class="setting-chip active" id="chipOverflow" onclick="toggleSetting('overflow')">
+      🚀 인물 튀어나오기
+    </div>
+    <div class="setting-chip active" id="chipBlur" onclick="toggleSetting('blur')">
+      🌫️ 배경 블러
+    </div>
+    <div class="setting-chip active" id="chipShadow" onclick="toggleSetting('shadow')">
+      🌑 인물 그림자
+    </div>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+    <div class="progress-label" id="progressLabel">AI 모델 로딩 중...</div>
+  </div>
+
+  <div class="preview-section" id="previewSection">
+    <div class="ios-frame-wrapper" id="iosFrameWrapper">
+      <div class="ios-card">
+
+        <!-- Top bar -->
+        <div class="ios-top-bar">
+          <div class="ios-thumb">
+            <img id="thumbImg" src="" alt="">
+          </div>
+          <div class="ios-top-text">
+            <div class="ios-selected-label">1 PHOTO SELECTED</div>
+            <div class="ios-url-chip">frameout.app →</div>
+          </div>
+        </div>
+
+        <!-- Photo area (bg clipped, subject overflows) -->
+        <div class="ios-photo-area">
+          <div class="ios-photo-bg-wrap">
+            <img id="bgImg" src="" alt="">
+          </div>
+          <img id="subjectImg" class="ios-subject" src="" alt="" style="display:none;">
+        </div>
+
+        <!-- Bottom: side thumbs + app icons -->
+        <div class="ios-bottom-section">
+          <div class="ios-side-thumbs">
+            <div class="ios-side-thumb"><img id="sideLeftImg" src="" alt=""></div>
+            <div class="ios-side-thumb"><img id="sideRightImg" src="" alt=""></div>
+          </div>
+          <div class="ios-apps">
+            <div class="ios-app-item">
+              <div class="ios-app-icon app-mail">✉️</div>
+              <div class="ios-app-label">Email</div>
+            </div>
+            <div class="ios-app-item">
+              <div class="ios-app-icon app-msg">💬</div>
+              <div class="ios-app-label">Messages</div>
+            </div>
+            <div class="ios-app-item">
+              <div class="ios-app-icon app-tg">✈️</div>
+              <div class="ios-app-label">Telegram</div>
+            </div>
+            <div class="ios-app-item">
+              <div class="ios-app-icon app-wa">📱</div>
+              <div class="ios-app-label">WhatsApp</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="action-row">
+      <button class="btn-download" onclick="downloadImage()">⬇ 이미지 저장</button>
+      <button class="btn-reset" onclick="resetAll()">다시 업로드</button>
+    </div>
+  </div>
+
+  <div class="footer">AI 배경제거 · 서버 전송 없음 · 100% 브라우저 처리</div>
+</div>
+
+<script type="module">
+import { removeBackground } from 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/dist/index.browser.mjs';
+
+const settings = { overflow: true, blur: true, shadow: true };
+
+window.toggleSetting = (key) => {
+  settings[key] = !settings[key];
+  const chip = document.getElementById('chip' + key.charAt(0).toUpperCase() + key.slice(1));
+  chip.classList.toggle('active', settings[key]);
+  applySettings();
+};
+
+function applySettings() {
+  const subject = document.getElementById('subjectImg');
+  const bgImg   = document.getElementById('bgImg');
+
+  subject.style.bottom = settings.overflow ? '-55px' : '0px';
+  subject.style.height = settings.overflow ? 'calc(100% + 70px)' : '100%';
+  bgImg.style.filter   = settings.blur ? 'brightness(0.7) blur(4px)' : 'brightness(0.9)';
+  subject.style.filter = settings.shadow
+    ? 'drop-shadow(0 16px 32px rgba(0,0,0,0.9))'
+    : 'none';
+}
+
+// Drag & drop
+const uploadZone = document.getElementById('uploadZone');
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+document.getElementById('fileInput').addEventListener('change', e => {
+  if (e.target.files[0]) handleFile(e.target.files[0]);
+});
+
+let subjectBlobUrl = null;
+
+async function handleFile(file) {
+  const url = URL.createObjectURL(file);
+  uploadZone.style.display = 'none';
+  document.getElementById('settingsRow').style.display = 'none';
+  const pw = document.getElementById('progressWrap');
+  pw.classList.add('visible');
+  setProgress(5, 'AI 모델 초기화 중...');
+
+  document.getElementById('bgImg').src = url;
+  document.getElementById('thumbImg').src = url;
+  document.getElementById('sideLeftImg').src = url;
+  document.getElementById('sideRightImg').src = url;
+
+  try {
+    setProgress(15, 'AI 모델 로딩 중 (최초 1회 다운로드)...');
+
+    const blob = await removeBackground(file, {
+      publicPath: 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.4.5/dist/',
+      progress: (key, current, total) => {
+        if (total > 0) {
+          const pct = Math.min(Math.round((current / total) * 65) + 20, 85);
+          setProgress(pct, `AI 처리 중... ${Math.round((current/total)*100)}%`);
+        }
+      },
+      output: { format: 'image/png', quality: 1 }
+    });
+
+    setProgress(95, '합성 중...');
+    if (subjectBlobUrl) URL.revokeObjectURL(subjectBlobUrl);
+    subjectBlobUrl = URL.createObjectURL(blob);
+
+    const subjectEl = document.getElementById('subjectImg');
+    subjectEl.src = subjectBlobUrl;
+    subjectEl.style.display = 'block';
+
+    setProgress(100, '완료! ✨');
+
+    setTimeout(() => {
+      pw.classList.remove('visible');
+      document.getElementById('settingsRow').style.display = 'flex';
+      document.getElementById('previewSection').classList.add('visible');
+      applySettings();
+    }, 500);
+
+  } catch(err) {
+    console.error(err);
+    setProgress(0, '오류: ' + err.message);
+    document.getElementById('progressLabel').style.color = '#f87171';
+  }
+}
+
+function setProgress(pct, label) {
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressLabel').textContent = label;
+}
+
+window.resetAll = () => {
+  document.getElementById('fileInput').value = '';
+  uploadZone.style.display = '';
+  document.getElementById('previewSection').classList.remove('visible');
+  document.getElementById('settingsRow').style.display = 'none';
+  document.getElementById('progressWrap').classList.remove('visible');
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('subjectImg').style.display = 'none';
+  if (subjectBlobUrl) { URL.revokeObjectURL(subjectBlobUrl); subjectBlobUrl = null; }
+};
+
+window.downloadImage = async () => {
+  const wrapper = document.getElementById('iosFrameWrapper');
+  if (!window.html2canvas) {
+    await new Promise((res, rej) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+      s.onload = res; s.onerror = rej;
+      document.head.appendChild(s);
+    });
+  }
+  const canvas = await html2canvas(wrapper, {
+    backgroundColor: null,
+    scale: 3,
+    useCORS: true,
+    allowTaint: true,
+    logging: false,
+  });
+  const a = document.createElement('a');
+  a.href = canvas.toDataURL('image/png');
+  a.download = 'frameout-' + Date.now() + '.png';
+  a.click();
+};
+</script>
+</body>
+</html>

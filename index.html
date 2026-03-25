@@ -544,7 +544,7 @@ async function handleFile(file) {
     setProgress(15, 'AI 모델 로딩 중 (최초 1회 다운로드)...');
 
     const blob = await removeBackground(file, {
-      publicPath: 'https://cdn.jsdelivr.net/npm/@imgly/background-removal@1.7.0/dist/',
+      
       progress: (key, current, total) => {
         if (total > 0) {
           const pct = Math.min(Math.round((current / total) * 65) + 20, 85);

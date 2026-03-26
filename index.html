@@ -490,9 +490,11 @@
 
 
 <script type="module">
-// ── Hugging Face Transformers.js (CDN, 안정적) ──────────────────────────
-import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/dist/transformers.min.js';
+import { pipeline, env }
+  from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/dist/transformers.min.js';
+
 env.allowLocalModels = false;
+env.backends.onnx.wasm.proxy = false;
 
 const settings = { overflow: true, blur: true, shadow: true };
 
@@ -509,7 +511,8 @@ function applySettings() {
   subject.style.bottom = settings.overflow ? '-55px' : '0px';
   subject.style.height = settings.overflow ? 'calc(100% + 70px)' : '100%';
   bgImg.style.filter   = settings.blur ? 'brightness(0.7) blur(4px)' : 'brightness(0.9)';
-  subject.style.filter = settings.shadow ? 'drop-shadow(0 16px 32px rgba(0,0,0,0.9))' : 'none';
+  subject.style.filter = settings.shadow
+    ? 'drop-shadow(0 16px 32px rgba(0,0,0,0.9))' : 'none';
 }
 
 const uploadZone = document.getElementById('uploadZone');
@@ -539,26 +542,28 @@ async function handleFile(file) {
   document.getElementById('sideRightImg').src = url;
 
   try {
-    // 모델 최초 1회 로드 (캐시됨)
     if (!segmenter) {
-      setProgress(20, 'AI 모델 다운로드 중 (최초 1회, 약 40MB)...');
-      segmenter = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
-        device: 'webgpu',
-      });
+      setProgress(20, 'AI 모델 다운로드 중 (최초 1회, 잠시 기다려주세요)...');
+      segmenter = await pipeline(
+        'image-segmentation',
+        'Xenova/segformer-b0-finetuned-ade-512-512',
+        { device: 'wasm' }
+      );
     }
 
-    setProgress(70, 'AI 배경 제거 중...');
+    setProgress(65, 'AI 배경 제거 중...');
     const results = await segmenter(url);
 
-    setProgress(90, '합성 중...');
+    // "person" 레이블 마스크 찾기
+    const personResult = results.find(r => r.label === 'person') || results[0];
+    const maskImageData = personResult.mask; // ImageData
 
-    // mask를 원본 이미지에 적용해서 PNG 생성
-    const mask = results[0].mask; // ImageData
+    setProgress(88, '마스크 합성 중...');
 
-    // 원본 이미지를 캔버스에 그리고 마스크 적용
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.src = url;
-    await new Promise(r => img.onload = r);
+    await new Promise(r => { img.onload = r; });
 
     const canvas = document.createElement('canvas');
     canvas.width  = img.naturalWidth;
@@ -566,26 +571,23 @@ async function handleFile(file) {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
 
-    // 마스크 적용 (alpha 채널)
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // 마스크를 원본 크기로 스케일 후 alpha 적용
     const maskCanvas = document.createElement('canvas');
-    maskCanvas.width  = mask.width;
-    maskCanvas.height = mask.height;
-    const maskCtx = maskCanvas.getContext('2d');
-    maskCtx.putImageData(mask, 0, 0);
+    maskCanvas.width  = maskImageData.width;
+    maskCanvas.height = maskImageData.height;
+    maskCanvas.getContext('2d').putImageData(maskImageData, 0, 0);
 
-    // 마스크를 원본 크기로 스케일
-    const maskScaled = document.createElement('canvas');
-    maskScaled.width  = canvas.width;
-    maskScaled.height = canvas.height;
-    const msCtx = maskScaled.getContext('2d');
-    msCtx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
-    const maskData = msCtx.getImageData(0, 0, canvas.width, canvas.height);
+    const scaledMask = document.createElement('canvas');
+    scaledMask.width  = canvas.width;
+    scaledMask.height = canvas.height;
+    scaledMask.getContext('2d').drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
+    const maskPx = scaledMask.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
 
-    for (let i = 0; i < imageData.data.length; i += 4) {
-      imageData.data[i + 3] = maskData.data[i]; // R채널을 alpha로
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    for (let i = 0; i < imgData.data.length; i += 4) {
+      imgData.data[i + 3] = maskPx.data[i]; // R → alpha
     }
-    ctx.putImageData(imageData, 0, 0);
+    ctx.putImageData(imgData, 0, 0);
 
     if (subjectBlobUrl) URL.revokeObjectURL(subjectBlobUrl);
     const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
@@ -605,10 +607,6 @@ async function handleFile(file) {
 
   } catch(err) {
     console.error(err);
-    // WebGPU 실패시 CPU fallback
-    if (err.message && err.message.includes('webgpu') && segmenter) {
-      segmenter = null;
-    }
     setProgress(0, '오류: ' + err.message);
     document.getElementById('progressLabel').style.color = '#f87171';
   }

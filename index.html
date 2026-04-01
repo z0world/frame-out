@@ -587,23 +587,40 @@ function makeMusic(src){
   return Promise.all([svgImg(SVG.prev),svgImg(SVG.pause),svgImg(SVG.next),svgImg(SVG.volLo),svgImg(SVG.volHi),svgImg(SVG.airplay)]).then(function(ii){
     var c=document.createElement('canvas');c.width=BW;c.height=BH;
     var ctx=c.getContext('2d');
-    /* blurry cover bg — Safari-compatible:
-       draw blurred image on temp canvas first, then clip-composite */
+    /* blurry bg via SVG feGaussianBlur — works on Safari/iOS */
     var iAR=src.width/src.height,bAR=BW/BH,cW=BW,cH=BH;
     if(iAR>bAR){cH=BH;cW=BH*iAR;}else{cW=BW;cH=BW/iAR;}
-    /* Step1: draw blurred bg onto a temp canvas (no clip, so filter works on Safari) */
-    var tmp=document.createElement('canvas');tmp.width=BW;tmp.height=BH;
-    var tctx=tmp.getContext('2d');
-    tctx.filter='blur('+Math.round(28*u)+'px) brightness(0.62) saturate(1.5)';
-    tctx.drawImage(src,(BW-cW)/2,(BH-cH)/2,cW,cH);
-    tctx.filter='none';
-    tctx.fillStyle='rgba(0,0,0,0.22)';tctx.fillRect(0,0,BW,BH);
-    /* Step2: clip to player shape, draw blurred temp canvas */
-    ctx.save();rrPath(ctx,0,0,BW,BH,BR);ctx.clip();
-    ctx.drawImage(tmp,0,0);
-    ctx.restore();
-    /* photo frame */
-    ctx.fillStyle='rgba(255,255,255,0.12)';rrPath(ctx,FM-2,FM-2,FW+4,FH+4,FR+2);ctx.fill();
+    /* Step 1: downscale src to small canvas → dataURL (avoids tainted canvas) */
+    var bSz=160,bSc=bSz/Math.max(src.width,src.height);
+    var bC=document.createElement('canvas');
+    bC.width=Math.round(src.width*bSc);bC.height=Math.round(src.height*bSc);
+    bC.getContext('2d').drawImage(src,0,0,bC.width,bC.height);
+    var bUrl=bC.toDataURL('image/jpeg',0.8);
+    var imgX=Math.round((BW-cW)/2),imgY=Math.round((BH-cH)/2);
+    /* Step 2: SVG with feGaussianBlur + brightness matrix */
+    var svg='<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
+      +' width="'+BW+'" height="'+BH+'">'
+      +'<defs><filter id="f" color-interpolation-filters="linearRGB">'
+      +'<feGaussianBlur stdDeviation="20"/>'
+      +'<feColorMatrix type="matrix" values="0.6 0 0 0 0  0 0.6 0 0 0  0 0 0.6 0 0  0 0 0 1 0"/>'
+      +'</filter></defs>'
+      +'<image filter="url(#f)" href="'+bUrl+'"'
+      +' x="'+imgX+'" y="'+imgY+'"'
+      +' width="'+Math.round(cW)+'" height="'+Math.round(cH)+'"'
+      +' preserveAspectRatio="xMidYMid slice"/>'
+      +'<rect fill="rgba(0,0,0,0.2)" width="'+BW+'" height="'+BH+'"/>'
+      +'</svg>';
+    var blob=new Blob([svg],{type:'image/svg+xml;charset=utf-8'});
+    var blobUrl=URL.createObjectURL(blob);
+    return new Promise(function(resolveBlur,rejectBlur){
+      var bgI=new Image();
+      bgI.onload=function(){
+        URL.revokeObjectURL(blobUrl);
+        ctx.save();rrPath(ctx,0,0,BW,BH,BR);ctx.clip();
+        ctx.drawImage(bgI,0,0,BW,BH);
+        ctx.restore();
+        /* photo frame */
+        ctx.fillStyle='rgba(255,255,255,0.12)';rrPath(ctx,FM-2,FM-2,FW+4,FH+4,FR+2);ctx.fill();
     ctx.save();rrPath(ctx,FM,FM,FW,FH,FR);ctx.clip();
     ctx.drawImage(src,0,0,src.width,src.height,FM,FM,FW,FH);ctx.restore();
     /* controls */
@@ -637,7 +654,12 @@ function makeMusic(src){
     ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(vBx+vBw*0.75,volY+th/2,Math.round(5.5*u),0,Math.PI*2);ctx.fill();
     ctx.drawImage(ii[3],bx,volY+th/2-vSz/2,vSz,vSz);
     ctx.drawImage(ii[4],bx+bw-vSz,volY+th/2-vSz/2,vSz,vSz);
-    return wrapOutput(addShadow(roundClip(c,BR),Math.round(8*u),Math.round(32*u),0.3));
+        var out=wrapOutput(addShadow(roundClip(c,BR),Math.round(8*u),Math.round(32*u),0.3));
+        resolveBlur(out);
+      };
+      bgI.onerror=function(){ URL.revokeObjectURL(blobUrl); rejectBlur(new Error('SVG blur failed')); };
+      bgI.src=blobUrl;
+    });
   });
 }
 

@@ -198,6 +198,7 @@ body {
 .btn-re {
   background: transparent; border: 1.5px solid var(--border);
   color: var(--text); font-size: 14px; font-weight: 500;
+  font-size: 15px; font-weight: 600;
   font-family: var(--sf); cursor: pointer; padding: 0; height: 48px;
   text-align: center; width: 100%; border-radius: var(--r-md); transition: all .15s;
 }
@@ -408,9 +409,8 @@ function startCrop(img,dataUrl){
   var ci=document.getElementById('cropImg');
   ci.onload=function(){
     var g=getRendered();
-    var bw=g.rW*0.9, bh=bw*(img.naturalHeight/img.naturalWidth);
-    if(bh>g.rH*0.9){bh=g.rH*0.9;bw=bh*(img.naturalWidth/img.naturalHeight);}
-    box={x:g.oX+(g.rW-bw)/2, y:g.oY+(g.rH-bh)/2, w:bw, h:bh};
+    /* Start at 100% of rendered image area */
+    box={x:g.oX, y:g.oY, w:g.rW, h:g.rH};
     drawBox();
   };
   ci.src=dataUrl;
@@ -425,7 +425,14 @@ function setCR(btn,r){
 function enforceAR(){
   if(cropRatio==='free')return;
   var ar=RATIOS[cropRatio][0]/RATIOS[cropRatio][1];
-  box.h=box.w/ar; clampBox(); drawBox();
+  var g=getRendered();
+  /* keep width, adjust height, then re-center within rendered image */
+  box.w=g.rW;
+  box.h=box.w/ar;
+  if(box.h>g.rH){box.h=g.rH;box.w=box.h*ar;}
+  box.x=g.oX+(g.rW-box.w)/2;
+  box.y=g.oY+(g.rH-box.h)/2;
+  clampBox(); drawBox();
 }
 function drawBox(){
   var cb=document.getElementById('cropBox');
@@ -580,14 +587,20 @@ function makeMusic(src){
   return Promise.all([svgImg(SVG.prev),svgImg(SVG.pause),svgImg(SVG.next),svgImg(SVG.volLo),svgImg(SVG.volHi),svgImg(SVG.airplay)]).then(function(ii){
     var c=document.createElement('canvas');c.width=BW;c.height=BH;
     var ctx=c.getContext('2d');
-    /* blurry cover bg */
-    ctx.save();rrPath(ctx,0,0,BW,BH,BR);ctx.clip();
+    /* blurry cover bg — Safari-compatible:
+       draw blurred image on temp canvas first, then clip-composite */
     var iAR=src.width/src.height,bAR=BW/BH,cW=BW,cH=BH;
     if(iAR>bAR){cH=BH;cW=BH*iAR;}else{cW=BW;cH=BW/iAR;}
-    ctx.filter='blur('+Math.round(28*u)+'px) brightness(0.62) saturate(1.5)';
-    ctx.drawImage(src,(BW-cW)/2,(BH-cH)/2,cW,cH);
-    ctx.filter='none';
-    ctx.fillStyle='rgba(0,0,0,0.22)';ctx.fillRect(0,0,BW,BH);
+    /* Step1: draw blurred bg onto a temp canvas (no clip, so filter works on Safari) */
+    var tmp=document.createElement('canvas');tmp.width=BW;tmp.height=BH;
+    var tctx=tmp.getContext('2d');
+    tctx.filter='blur('+Math.round(28*u)+'px) brightness(0.62) saturate(1.5)';
+    tctx.drawImage(src,(BW-cW)/2,(BH-cH)/2,cW,cH);
+    tctx.filter='none';
+    tctx.fillStyle='rgba(0,0,0,0.22)';tctx.fillRect(0,0,BW,BH);
+    /* Step2: clip to player shape, draw blurred temp canvas */
+    ctx.save();rrPath(ctx,0,0,BW,BH,BR);ctx.clip();
+    ctx.drawImage(tmp,0,0);
     ctx.restore();
     /* photo frame */
     ctx.fillStyle='rgba(255,255,255,0.12)';rrPath(ctx,FM-2,FM-2,FW+4,FH+4,FR+2);ctx.fill();
